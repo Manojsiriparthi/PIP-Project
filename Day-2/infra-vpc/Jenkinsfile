@@ -38,17 +38,9 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_INPUT = 'false'
-
-        INFRA_DIR = 'Day-2/infra-vpc/envs'
     }
 
     stages {
-
-        /*
-         * ==========================================
-         * 1. CHECKOUT
-         * ==========================================
-         */
 
         stage('Checkout') {
             steps {
@@ -56,58 +48,42 @@ pipeline {
             }
         }
 
-        /*
-         * ==========================================
-         * 2. SHOW BUILD INFORMATION
-         * ==========================================
-         */
-
         stage('Build Information') {
             steps {
                 echo """
 ========================================
-Terraform CI/CD Pipeline
+Terraform CI/CD
 ========================================
-
 Environment : ${params.ENVIRONMENT}
 Action      : ${params.ACTION}
 
-Terraform directory:
-${INFRA_DIR}/${params.ENVIRONMENT}
-
+Working Directory:
+Day-2/infra-vpc/envs/${params.ENVIRONMENT}
 ========================================
 """
             }
         }
 
-        /*
-         * ==========================================
-         * 3. TERRAFORM FORMAT
-         * ==========================================
-         */
-
-        stage('Terraform Format') {
+        stage('Terraform Format Check') {
             steps {
-                sh '''
-                    echo "Checking Terraform formatting..."
 
-                    terraform fmt -check -recursive Day-2/infra-vpc
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
-                    echo "Terraform format check completed."
-                '''
+                    sh '''
+                        echo "Checking Terraform format..."
+
+                        terraform fmt -check
+
+                        echo "Terraform format check passed."
+                    '''
+                }
             }
         }
-
-        /*
-         * ==========================================
-         * 4. TERRAFORM INIT
-         * ==========================================
-         */
 
         stage('Terraform Init') {
             steps {
 
-                dir("${INFRA_DIR}/${params.ENVIRONMENT}") {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     sh '''
                         echo "Initializing Terraform..."
@@ -120,38 +96,26 @@ ${INFRA_DIR}/${params.ENVIRONMENT}
             }
         }
 
-        /*
-         * ==========================================
-         * 5. TERRAFORM VALIDATE
-         * ==========================================
-         */
-
         stage('Terraform Validate') {
             steps {
 
-                dir("${INFRA_DIR}/${params.ENVIRONMENT}") {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     sh '''
-                        echo "Validating Terraform..."
+                        echo "Validating Terraform configuration..."
 
                         terraform validate
 
-                        echo "Terraform validation completed."
+                        echo "Terraform validation passed."
                     '''
                 }
             }
         }
 
-        /*
-         * ==========================================
-         * 6. TERRAFORM PLAN
-         * ==========================================
-         */
-
         stage('Terraform Plan') {
             steps {
 
-                dir("${INFRA_DIR}/${params.ENVIRONMENT}") {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     script {
 
@@ -160,6 +124,7 @@ ${INFRA_DIR}/${params.ENVIRONMENT}
                             echo """
 ========================================
 TERRAFORM PLAN
+========================================
 Environment : ${params.ENVIRONMENT}
 Action      : APPLY
 ========================================
@@ -180,6 +145,7 @@ Action      : APPLY
                             echo """
 ========================================
 TERRAFORM DESTROY PLAN
+========================================
 Environment : ${params.ENVIRONMENT}
 Action      : DESTROY
 ========================================
@@ -198,19 +164,13 @@ Action      : DESTROY
                         }
 
                         archiveArtifacts(
-                            artifacts: 'tfplan.txt',
+                            artifacts: "Day-2/infra-vpc/envs/${params.ENVIRONMENT}/tfplan.txt",
                             fingerprint: true
                         )
                     }
                 }
             }
         }
-
-        /*
-         * ==========================================
-         * 7. MANUAL APPROVAL
-         * ==========================================
-         */
 
         stage('Manual Approval') {
             steps {
@@ -231,8 +191,8 @@ TERRAFORM APPROVAL REQUIRED
 Environment : ${params.ENVIRONMENT}
 Action      : ${params.ACTION}
 
-Review the Terraform plan artifact
-before approving.
+Review the Terraform plan before
+approving this operation.
 
 ========================================
 """,
@@ -242,12 +202,6 @@ before approving.
                 }
             }
         }
-
-        /*
-         * ==========================================
-         * 8. APPLY
-         * ==========================================
-         */
 
         stage('Terraform Apply') {
 
@@ -259,7 +213,7 @@ before approving.
 
             steps {
 
-                dir("${INFRA_DIR}/${params.ENVIRONMENT}") {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     sh '''
                         echo "Applying Terraform plan..."
@@ -275,12 +229,6 @@ before approving.
             }
         }
 
-        /*
-         * ==========================================
-         * 9. DESTROY
-         * ==========================================
-         */
-
         stage('Terraform Destroy') {
 
             when {
@@ -291,7 +239,7 @@ before approving.
 
             steps {
 
-                dir("${INFRA_DIR}/${params.ENVIRONMENT}") {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     sh '''
                         echo "Destroying infrastructure..."
@@ -307,12 +255,6 @@ before approving.
             }
         }
     }
-
-    /*
-     * ==========================================
-     * POST ACTIONS
-     * ==========================================
-     */
 
     post {
 
@@ -355,10 +297,6 @@ Action      : ${params.ACTION}
 
 ========================================
 """
-        }
-
-        always {
-            echo "Pipeline execution completed."
         }
     }
 }
