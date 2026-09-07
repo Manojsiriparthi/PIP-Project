@@ -1,0 +1,14 @@
+name                      = "pip-dev"
+environment               = "dev"
+region                    = "ap-south-1"
+vpc_cidr                  = "10.10.0.0/16"
+availability_zones        = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+public_subnet_cidrs       = ["10.10.0.0/24", "10.10.1.0/24", "10.10.2.0/24"]
+private_app_subnet_cidrs  = ["10.10.10.0/24", "10.10.11.0/24", "10.10.12.0/24"]
+private_data_subnet_cidrs = ["10.10.20.0/24", "10.10.21.0/24", "10.10.22.0/24"]
+enable_nat_gateway        = true
+single_nat_gateway        = true
+enable_s3_flow_logs       = true
+enable_s3_endpoint        = true
+enable_sqs_sns_endpoints  = true
+public_ingress_cidrs      = ["0.0.0.0/0"]

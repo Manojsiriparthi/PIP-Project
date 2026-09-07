@@ -1,0 +1,14 @@
+variable "name" { type = string }
+variable "environment" { type = string }
+variable "region" { type = string }
+variable "vpc_cidr" { type = string }
+variable "availability_zones" { type = list(string) }
+variable "public_subnet_cidrs" { type = list(string) }
+variable "private_app_subnet_cidrs" { type = list(string) }
+variable "private_data_subnet_cidrs" { type = list(string) }
+variable "enable_nat_gateway" { type = bool }
+variable "single_nat_gateway" { type = bool }
+variable "enable_s3_flow_logs" { type = bool }
+variable "enable_s3_endpoint" { type = bool }
+variable "enable_sqs_sns_endpoints" { type = bool }
+variable "public_ingress_cidrs" { type = list(string) }
