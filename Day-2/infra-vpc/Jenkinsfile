@@ -1,453 +1,6 @@
-pipeline {
 
-    agent any
-
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-
-        buildDiscarder(
-            logRotator(
-                numToKeepStr: '20',
-                artifactNumToKeepStr: '10'
-            )
-        )
-    }
-
-    parameters {
-
-        choice(
-            name: 'ENVIRONMENT',
-            choices: [
-                'dev',
-                'prod'
-            ],
-            description: 'Select Terraform environment'
-        )
-
-        choice(
-            name: 'ACTION',
-            choices: [
-                'apply',
-                'destroy'
-            ],
-            description: 'Select Terraform action'
-        )
-    }
-
-    environment {
-        TF_IN_AUTOMATION = 'true'
-        TF_INPUT = 'false'
-
-        /*
-         * Repository structure:
-         *
-         * Day-2/
-         * └── infra-vpc/
-         *     └── envs/
-         *         ├── dev/
-         *         └── prod/
-         */
-        TERRAFORM_BASE_DIR = 'Day-2/infra-vpc/envs'
-    }
-
-    stages {
-
-        /*
-         * ==========================================
-         * 1. CHECKOUT
-         * ==========================================
-         */
-
-        stage('Checkout') {
-
-            steps {
-
-                echo "Checking out Git repository..."
-
-                checkout scm
-
-                echo "Checkout completed."
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 2. BUILD INFORMATION
-         * ==========================================
-         */
-
-        stage('Build Information') {
-
-            steps {
-
-                echo """
-================================================
-Terraform CI/CD Pipeline
-================================================
-
-Environment : ${params.ENVIRONMENT}
-Action      : ${params.ACTION}
-
-Terraform Directory:
-${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}
-
-================================================
-"""
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 3. TERRAFORM FORMAT CHECK
-         * ==========================================
-         */
-
-        stage('Terraform Format Check') {
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    sh '''
-                        echo "========================================"
-                        echo "Terraform Format Check"
-                        echo "========================================"
-
-                        terraform fmt -check
-
-                        echo "Terraform format check PASSED."
-                    '''
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 4. TERRAFORM INIT
-         * ==========================================
-         */
-
-        stage('Terraform Init') {
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    sh '''
-                        echo "========================================"
-                        echo "Terraform Init"
-                        echo "========================================"
-
-                        terraform init -input=false
-
-                        echo "Terraform init PASSED."
-                    '''
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 5. TERRAFORM VALIDATE
-         * ==========================================
-         */
-
-        stage('Terraform Validate') {
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    sh '''
-                        echo "========================================"
-                        echo "Terraform Validate"
-                        echo "========================================"
-
-                        terraform validate
-
-                        echo "Terraform validate PASSED."
-                    '''
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 6. TERRAFORM PLAN
-         * ==========================================
-         */
-
-        stage('Terraform Plan') {
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    script {
-
-                        echo """
-================================================
-Terraform Plan
-================================================
-Environment : ${params.ENVIRONMENT}
-Action      : ${params.ACTION}
-================================================
-"""
-
-                        if (params.ACTION == 'apply') {
-
-                            echo "Creating Terraform APPLY plan..."
-
-                            sh '''
-                                terraform plan \
-                                    -input=false \
-                                    -out=tfplan
-
-                                terraform show \
-                                    -no-color \
-                                    tfplan > tfplan.txt
-                            '''
-
-                        }
-
-                        else if (params.ACTION == 'destroy') {
-
-                            echo "Creating Terraform DESTROY plan..."
-
-                            sh '''
-                                terraform plan \
-                                    -destroy \
-                                    -input=false \
-                                    -out=tfplan
-
-                                terraform show \
-                                    -no-color \
-                                    tfplan > tfplan.txt
-                            '''
-                        }
-
-
-                        /*
-                         * Verify that Terraform generated
-                         * both plan files.
-                         */
-
-                        echo "Checking Terraform plan files..."
-
-                        sh '''
-                            echo "Files generated:"
-                            ls -lh tfplan
-                            ls -lh tfplan.txt
-                        '''
-
-
-                        /*
-                         * Archive the human-readable plan.
-                         *
-                         * IMPORTANT:
-                         * We are already inside:
-                         *
-                         * Day-2/infra-vpc/envs/dev
-                         *
-                         * OR
-                         *
-                         * Day-2/infra-vpc/envs/prod
-                         *
-                         * Therefore only tfplan.txt is required.
-                         */
-
-                        archiveArtifacts(
-                            artifacts: 'tfplan.txt',
-                            fingerprint: true
-                        )
-
-                        echo "Terraform plan archived successfully."
-                    }
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 7. MANUAL APPROVAL
-         * ==========================================
-         */
-
-        stage('Manual Approval') {
-
-            steps {
-
-                script {
-
-                    def approvalMessage = """
-================================================
-
-TERRAFORM MANUAL APPROVAL REQUIRED
-
-Environment : ${params.ENVIRONMENT}
-Action      : ${params.ACTION}
-
-The Terraform plan has completed successfully.
-
-Please review the archived tfplan.txt
-before approving this operation.
-
-================================================
-"""
-
-                    timeout(
-                        time: 30,
-                        unit: 'MINUTES'
-                    ) {
-
-                        input(
-                            message: approvalMessage,
-                            ok: "APPROVE ${params.ACTION.toUpperCase()}"
-                        )
-                    }
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 8. TERRAFORM APPLY
-         * ==========================================
-         */
-
-        stage('Terraform Apply') {
-
-            when {
-
-                expression {
-                    params.ACTION == 'apply'
-                }
-            }
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    sh '''
-                        echo "========================================"
-                        echo "Terraform Apply"
-                        echo "========================================"
-
-                        terraform apply \
-                            -input=false \
-                            -auto-approve \
-                            tfplan
-
-                        echo "Terraform APPLY completed successfully."
-                    '''
-                }
-            }
-        }
-
-
-        /*
-         * ==========================================
-         * 9. TERRAFORM DESTROY
-         * ==========================================
-         */
-
-        stage('Terraform Destroy') {
-
-            when {
-
-                expression {
-                    params.ACTION == 'destroy'
-                }
-            }
-
-            steps {
-
-                dir("${TERRAFORM_BASE_DIR}/${params.ENVIRONMENT}") {
-
-                    sh '''
-                        echo "========================================"
-                        echo "Terraform Destroy"
-                        echo "========================================"
-
-                        terraform apply \
-                            -input=false \
-                            -auto-approve \
-                            tfplan
-
-                        echo "Terraform DESTROY completed successfully."
-                    '''
-                }
-            }
-        }
-    }
-
-
-    /*
-     * ==========================================
-     * POST ACTIONS
-     * ==========================================
-     */
-
-    post {
-
-        success {
-
-            echo """
-================================================
-PIPELINE SUCCESS
-================================================
-
-Environment : ${params.ENVIRONMENT}
-Action      : ${params.ACTION}
-Build       : ${BUILD_NUMBER}
-
-Terraform operation completed successfully.
-
-================================================
-"""
-        }
-
-
-        failure {
-
-            echo """
-================================================
-PIPELINE FAILED
-================================================
-
-Environment : ${params.ENVIRONMENT}
-Action      : ${params.ACTION}
-Build       : ${BUILD_NUMBER}
-
-Please check the console output for the failure.
-
-================================================
-"""
-        }
-
-
-        aborted {
-
-root@ip-10-0-1-101:~# 
-root@ip-10-0-1-101:~# 
-root@ip-10-0-1-101:~# 
-root@ip-10-0-1-101:~# 
-root@ip-10-0-1-101:~# cat jenkins 
 pipeline {
     agent any
-
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-    }
 
     parameters {
         choice(
@@ -459,7 +12,7 @@ pipeline {
         choice(
             name: 'ACTION',
             choices: ['apply', 'destroy'],
-            description: 'Select action'
+            description: 'Select Terraform action'
         )
     }
 
@@ -476,10 +29,13 @@ pipeline {
             }
         }
 
-        stage('Terraform Format') {
+        stage('Terraform Format Check') {
             steps {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
-                    sh 'terraform fmt -check'
+                    sh '''
+                        echo "Checking Terraform format..."
+                        terraform fmt -check
+                    '''
                 }
             }
         }
@@ -487,7 +43,10 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
-                    sh 'terraform init -input=false'
+                    sh '''
+                        echo "Initializing Terraform..."
+                        terraform init -input=false
+                    '''
                 }
             }
         }
@@ -495,7 +54,10 @@ pipeline {
         stage('Terraform Validate') {
             steps {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
-                    sh 'terraform validate'
+                    sh '''
+                        echo "Validating Terraform..."
+                        terraform validate
+                    '''
                 }
             }
         }
@@ -505,8 +67,14 @@ pipeline {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
 
                     script {
+
                         if (params.ACTION == 'apply') {
+
+                            echo "Creating APPLY plan..."
+
                             sh '''
+                                set -e
+
                                 terraform plan \
                                     -input=false \
                                     -out=tfplan
@@ -515,8 +83,14 @@ pipeline {
                                     -no-color \
                                     tfplan > tfplan.txt
                             '''
+
                         } else {
+
+                            echo "Creating DESTROY plan..."
+
                             sh '''
+                                set -e
+
                                 terraform plan \
                                     -destroy \
                                     -input=false \
@@ -528,7 +102,12 @@ pipeline {
                             '''
                         }
 
-                        sh 'ls -lh tfplan tfplan.txt'
+                        echo "Plan completed successfully."
+
+                        sh '''
+                            echo "Plan files:"
+                            ls -lh tfplan tfplan.txt
+                        '''
 
                         archiveArtifacts(
                             artifacts: 'tfplan.txt',
@@ -541,11 +120,35 @@ pipeline {
 
         stage('Manual Approval') {
             steps {
-                timeout(time: 30, unit: 'MINUTES') {
-                    input(
-                        message: "Approve ${params.ACTION} for ${params.ENVIRONMENT}?",
-                        ok: 'Approve'
-                    )
+
+                script {
+
+                    echo """
+========================================
+MANUAL APPROVAL REQUIRED
+========================================
+
+Environment : ${params.ENVIRONMENT}
+Action      : ${params.ACTION}
+
+Terraform plan completed successfully.
+
+Review the archived tfplan.txt before
+approving this deployment.
+
+========================================
+"""
+
+                    timeout(
+                        time: 30,
+                        unit: 'MINUTES'
+                    ) {
+
+                        input(
+                            message: "Approve ${params.ACTION} for ${params.ENVIRONMENT}?",
+                            ok: 'APPROVE'
+                        )
+                    }
                 }
             }
         }
@@ -559,7 +162,15 @@ pipeline {
 
             steps {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
-                    sh 'terraform apply -input=false -auto-approve tfplan'
+
+                    sh '''
+                        echo "Applying approved Terraform plan..."
+
+                        terraform apply \
+                            -input=false \
+                            -auto-approve \
+                            tfplan
+                    '''
                 }
             }
         }
@@ -573,19 +184,32 @@ pipeline {
 
             steps {
                 dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
-                    sh 'terraform apply -input=false -auto-approve tfplan'
+
+                    sh '''
+                        echo "Applying approved DESTROY plan..."
+
+                        terraform apply \
+                            -input=false \
+                            -auto-approve \
+                            tfplan
+                    '''
                 }
             }
         }
     }
 
     post {
+
         success {
-            echo "Pipeline completed successfully."
+            echo "Terraform pipeline completed successfully."
         }
 
         failure {
-            echo "Pipeline failed. Check the console output."
+            echo "Pipeline failed. Approval and apply/destroy will not run."
+        }
+
+        aborted {
+            echo "Pipeline was aborted."
         }
     }
 }
