@@ -1,0 +1,14 @@
+name = "pip-prod"
+environment = "prod"
+region = "ap-south-1"
+vpc_cidr = "10.30.0.0/16"
+availability_zones = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+public_subnet_cidrs = ["10.30.0.0/24", "10.30.1.0/24", "10.30.2.0/24"]
+private_app_subnet_cidrs = ["10.30.10.0/24", "10.30.11.0/24", "10.30.12.0/24"]
+private_data_subnet_cidrs = ["10.30.20.0/24", "10.30.21.0/24", "10.30.22.0/24"]
+enable_nat_gateway = true
+single_nat_gateway = false
+enable_s3_flow_logs = true
+enable_s3_endpoint = true
+enable_sqs_sns_endpoints = true
+public_ingress_cidrs = ["0.0.0.0/0"]

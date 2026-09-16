@@ -1,0 +1,215 @@
+
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'prod'],
+            description: 'Select environment'
+        )
+
+        choice(
+            name: 'ACTION',
+            choices: ['apply', 'destroy'],
+            description: 'Select Terraform action'
+        )
+    }
+
+    environment {
+        TF_IN_AUTOMATION = 'true'
+        TF_INPUT = 'false'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Format Check') {
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+                    sh '''
+                        echo "Checking Terraform format..."
+                        terraform fmt -check
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+                    sh '''
+                        echo "Initializing Terraform..."
+                        terraform init -input=false
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+                    sh '''
+                        echo "Validating Terraform..."
+                        terraform validate
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+
+                    script {
+
+                        if (params.ACTION == 'apply') {
+
+                            echo "Creating APPLY plan..."
+
+                            sh '''
+                                set -e
+
+                                terraform plan \
+                                    -input=false \
+                                    -out=tfplan
+
+                                terraform show \
+                                    -no-color \
+                                    tfplan > tfplan.txt
+                            '''
+
+                        } else {
+
+                            echo "Creating DESTROY plan..."
+
+                            sh '''
+                                set -e
+
+                                terraform plan \
+                                    -destroy \
+                                    -input=false \
+                                    -out=tfplan
+
+                                terraform show \
+                                    -no-color \
+                                    tfplan > tfplan.txt
+                            '''
+                        }
+
+                        echo "Plan completed successfully."
+
+                        sh '''
+                            echo "Plan files:"
+                            ls -lh tfplan tfplan.txt
+                        '''
+
+                        archiveArtifacts(
+                            artifacts: 'tfplan.txt',
+                            fingerprint: true
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Manual Approval') {
+            steps {
+
+                script {
+
+                    echo """
+========================================
+MANUAL APPROVAL REQUIRED
+========================================
+
+Environment : ${params.ENVIRONMENT}
+Action      : ${params.ACTION}
+
+Terraform plan completed successfully.
+
+Review the archived tfplan.txt before
+approving this deployment.
+
+========================================
+"""
+
+                    timeout(
+                        time: 30,
+                        unit: 'MINUTES'
+                    ) {
+
+                        input(
+                            message: "Approve ${params.ACTION} for ${params.ENVIRONMENT}?",
+                            ok: 'APPROVE'
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            when {
+                expression {
+                    params.ACTION == 'apply'
+                }
+            }
+
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+
+                    sh '''
+                        echo "Applying approved Terraform plan..."
+
+                        terraform apply \
+                            -input=false \
+                            -auto-approve \
+                            tfplan
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Destroy') {
+            when {
+                expression {
+                    params.ACTION == 'destroy'
+                }
+            }
+
+            steps {
+                dir("Day-2/infra-vpc/envs/${params.ENVIRONMENT}") {
+
+                    sh '''
+                        echo "Applying approved DESTROY plan..."
+
+                        terraform apply \
+                            -input=false \
+                            -auto-approve \
+                            tfplan
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+
+        success {
+            echo "Terraform pipeline completed successfully."
+        }
+
+        failure {
+            echo "Pipeline failed. Approval and apply/destroy will not run."
+        }
+
+        aborted {
+            echo "Pipeline was aborted."
+        }
+    }
+}
